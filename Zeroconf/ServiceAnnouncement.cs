@@ -1,10 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace Zeroconf
 {
-    public struct ServiceAnnouncement : IEquatable<ServiceAnnouncement>
+    public readonly struct ServiceAnnouncement : IEquatable<ServiceAnnouncement>
     {
         public bool Equals(ServiceAnnouncement other)
         {
@@ -13,8 +11,7 @@ namespace Zeroconf
 
         public override bool Equals(object obj)
         {
-            if (ReferenceEquals(null, obj)) return false;
-            return obj is ServiceAnnouncement && Equals((ServiceAnnouncement)obj);
+            return obj is ServiceAnnouncement announcement && Equals(announcement);
         }
 
         public override int GetHashCode()
@@ -35,13 +32,14 @@ namespace Zeroconf
             return !left.Equals(right);
         }
 
-        public AdapterInformation AdapterInformation { get; }
-        public IZeroconfHost Host { get; }
-
         public ServiceAnnouncement(AdapterInformation adapterInformation, IZeroconfHost host)
         {
             AdapterInformation = adapterInformation;
             Host = host ?? throw new ArgumentNullException(nameof(host));
         }
+
+        public AdapterInformation AdapterInformation { get; }
+
+        public IZeroconfHost Host { get; }
     }
 }
