@@ -28,8 +28,6 @@ namespace Heijden.DNS
                 rr.ReadByte(),
                 rr.ReadByte(),
                 rr.ReadByte());
-
-
 		}
 
 		public override string ToString()
