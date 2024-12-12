@@ -1,10 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace Zeroconf
 {
-    public struct DomainService : IEquatable<DomainService>
+    public readonly struct DomainService : IEquatable<DomainService>
     {
         public bool Equals(DomainService other)
         {
@@ -13,15 +11,14 @@ namespace Zeroconf
 
         public override bool Equals(object obj)
         {
-            if (ReferenceEquals(null, obj)) return false;
-            return obj is DomainService && Equals((DomainService)obj);
+            return obj is DomainService service && Equals(service);
         }
 
         public override int GetHashCode()
         {
             unchecked
             {
-                return ((Domain != null ? Domain.GetHashCode() : 0)*397) ^ (Service != null ? Service.GetHashCode() : 0);
+                return ((Domain?.GetHashCode() ?? 0) * 397) ^ (Service?.GetHashCode() ?? 0);
             }
         }
 
@@ -40,7 +37,9 @@ namespace Zeroconf
             Domain = domain;
             Service = service;
         }
+
         public string Domain { get; }
+
         public string Service { get; }
     }
 }
