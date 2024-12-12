@@ -8,7 +8,6 @@ using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Heijden.DNS;
-using Type = Heijden.DNS.Type;
 
 namespace Zeroconf
 {
@@ -17,21 +16,23 @@ namespace Zeroconf
     /// </summary>
     public static partial class ZeroconfResolver
     {
-        static readonly AsyncLock ResolverLock = new AsyncLock();
+        private static readonly AsyncLock ResolverLock = new();
 
-        static readonly INetworkInterface NetworkInterface = new NetworkInterface();
+        private static readonly INetworkInterface NetworkInterface = new NetworkInterface();
 
-        static IEnumerable<string> BrowseResponseParser(Response response)
+        private static IEnumerable<string> BrowseResponseParser(Response response)
         {
             return response.RecordsPTR.Select(ptr => ptr.PTRDNAME);
         }
 
-        static async Task<IDictionary<string, Response>> ResolveInternal(ZeroconfOptions options,
-                                                                         Action<string, Response> callback,
-                                                                         CancellationToken cancellationToken,
-                                                                         System.Net.NetworkInformation.NetworkInterface[] netInterfacesToSendRequestOn = null)
+        private static async Task<IDictionary<string, Response>> ResolveInternal(
+            ZeroconfOptions options,
+            Action<string, Response> callback,
+            CancellationToken cancellationToken,
+            System.Net.NetworkInformation.NetworkInterface[] netInterfacesToSendRequestOn = null)
         {
             var requestBytes = GetRequestBytes(options);
+
             using (options.AllowOverlappedQueries ? Disposable.Empty : await ResolverLock.LockAsync())
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -63,7 +64,7 @@ namespace Zeroconf
                                                            options.ScanTime,
                                                            options.Retries,
                                                            (int)options.RetryDelay.TotalMilliseconds,
-                                                           Converter,                                                           
+                                                           Converter,
                                                            cancellationToken,
                                                            netInterfacesToSendRequestOn)
                                       .ConfigureAwait(false);
@@ -72,24 +73,16 @@ namespace Zeroconf
             }
         }
 
-        static byte[] GetRequestBytes(ZeroconfOptions options)
+        private static byte[] GetRequestBytes(ZeroconfOptions options)
         {
-            var req = new Request();
-            var queryType = options.ScanQueryType == ScanQueryType.Ptr ? QType.PTR : QType.ANY;
-
-            foreach (var protocol in options.Protocols)
-            {
-                var question = new Question(protocol, queryType, QClass.IN);
-
-                req.AddQuestion(question);
-            }
-
+            var queryType = options.ScanQueryType is ScanQueryType.Ptr ? QType.PTR : QType.ANY;
+            var req = new Request(options.Protocols.Select(p => new Question(p, queryType, QClass.IN)));
             return req.Data;
         }
 
-        static ZeroconfHost ResponseToZeroconf(Response response, string remoteAddress, ResolveOptions options)
+        private static ZeroconfHost ResponseToZeroconf(Response response, string remoteAddress, ResolveOptions options)
         {
-            var ipv4Adresses = response.Answers
+            var ipv4Adresses = response.RecordsRR
                                       .Select(r => r.RECORD)
                                       .OfType<RecordA>()
                                       .Concat(response.Additionals
@@ -99,7 +92,7 @@ namespace Zeroconf
                                       .Distinct()
                                       .ToList();
 
-            var ipv6Adresses = response.Answers
+            var ipv6Adresses = response.RecordsRR
                                       .Select(r => r.RECORD)
                                       .OfType<RecordAAAA>()
                                       .Concat(response.Additionals
@@ -108,25 +101,22 @@ namespace Zeroconf
                                       .Select(aRecord => aRecord.Address)
                                       .Distinct()
                                       .ToList();
-                                      
+
             var z = new ZeroconfHost
             {
                 IPAddresses = ipv4Adresses.Concat(ipv6Adresses).ToList()
             };
 
             z.Id = z.IPAddresses.FirstOrDefault() ?? remoteAddress;
-            
+
             var dispNameSet = false;
-           
+
             foreach (var ptrRec in response.RecordsPTR)
             {
                 // set the display name if needed
-                if (!dispNameSet
-                    && (options == null
-                        || (options != null
-                            && options.Protocols.Contains(ptrRec.RR.NAME))))
+                if (!dispNameSet && options?.Protocols.Contains(ptrRec.RR.NAME) is not false)
                 {
-                    z.DisplayName = ptrRec.PTRDNAME.Replace($".{ptrRec.RR.NAME}","");
+                    z.DisplayName = ptrRec.PTRDNAME.Replace($".{ptrRec.RR.NAME}", "");
                     dispNameSet = true;
                 }
 
@@ -136,45 +126,43 @@ namespace Zeroconf
                                              .Select(r => r.RECORD)
                                              .ToList();
 
-                var srvRec = responseRecords.OfType<RecordSRV>().FirstOrDefault();
-                if (srvRec == null)
-                    continue; // Missing the SRV record, not valid
-
-                var svc = new Service
+                foreach (var srvRec in responseRecords.OfType<RecordSRV>())
                 {
-                    Name = ptrRec.RR.NAME,
-                    ServiceName = srvRec.RR.NAME,
-                    Port = srvRec.PORT,
-                    Ttl = (int)srvRec.RR.TTL,
-
-                };
-
-                // There may be 0 or more text records - property sets
-                foreach (var txtRec in responseRecords.OfType<RecordTXT>())
-                {
-                    var set = new Dictionary<string, string>();
-                    foreach (var txt in txtRec.TXT)
+                    var svc = new Service
                     {
-                        var split = txt.Split(new[] {'='}, 2);
-                        if (split.Length == 1)
-                        {
-                            if (!string.IsNullOrWhiteSpace(split[0]))
-                                set[split[0]] = null;
-                        }
-                        else
-                        {
-                            set[split[0]] = split[1];
-                        }
-                    }
-                    svc.AddPropertySet(set);
-                }
+                        Name = ptrRec.RR.NAME,
+                        ServiceName = srvRec.RR.NAME,
+                        Port = srvRec.PORT,
+                        Ttl = (int)srvRec.RR.TTL,
 
-                z.AddService(svc);
+                    };
+
+                    // There may be 0 or more text records - property sets
+                    foreach (var txtRec in responseRecords.OfType<RecordTXT>())
+                    {
+                        var set = new Dictionary<string, string>();
+                        foreach (var txt in txtRec.TXT)
+                        {
+                        var split = txt.Split(new[] {'='}, 2);
+                            if (split.Length == 1)
+                            {
+                                if (!string.IsNullOrWhiteSpace(split[0]))
+                                    set[split[0]] = null;
+                            }
+                            else
+                            {
+                                set[split[0]] = split[1];
+                            }
+                        }
+                        svc.AddPropertySet(set);
+                    }
+
+                    z.AddService(svc);
+                }
             }
 
             return z;
         }
-
 
     }
 }

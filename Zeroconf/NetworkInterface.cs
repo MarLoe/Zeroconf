@@ -5,13 +5,9 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
 
 namespace Zeroconf
 {
@@ -26,24 +22,22 @@ namespace Zeroconf
                                               IEnumerable<System.Net.NetworkInformation.NetworkInterface> netInterfacesToSendRequestOn = null)
         {
             // populate list with all adapters if none specified
-            if(netInterfacesToSendRequestOn == null || !netInterfacesToSendRequestOn.Any())
+            if (netInterfacesToSendRequestOn?.Any() is not true)
             {
                 netInterfacesToSendRequestOn = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                                                 .Where(inter => inter.Supports(NetworkInterfaceComponent.IPv4));
             }
-                                    
+
             var tasks = netInterfacesToSendRequestOn
                               .Select(inter =>
-                                      NetworkRequestAsync(requestBytes, scanTime, retries, retryDelayMilliseconds, onResponse, inter, cancellationToken))
-                              .ToList();
+                                      NetworkRequestAsync(requestBytes, scanTime, retries, retryDelayMilliseconds, onResponse, inter, cancellationToken));
 
             await Task.WhenAll(tasks)
                       .ConfigureAwait(false);
 
         }
 
-
-        async Task NetworkRequestAsync(byte[] requestBytes,
+        private async Task NetworkRequestAsync(byte[] requestBytes,
                                               TimeSpan scanTime,
                                               int retries,
                                               int retryDelayMilliseconds,
@@ -60,209 +54,202 @@ namespace Zeroconf
             if (!adapter.SupportsMulticast)
                 return; // multicast is meaningless for this type of connection
 
-            if (OperationalStatus.Up != adapter.OperationalStatus)
+            if (adapter.OperationalStatus is not OperationalStatus.Up)
                 return; // this adapter is off or not connected
 
-            if (adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+            if (adapter.NetworkInterfaceType is NetworkInterfaceType.Loopback)
                 return; // strip out loopback addresses
 
-            var p = adapter.GetIPProperties().GetIPv4Properties();
-            if (null == p)
+            if (adapter.GetIPProperties().GetIPv4Properties() is not { } ipv4Properties)
                 return; // IPv4 is not configured on this adapter
 
             var ipv4Address = adapter.GetIPProperties().UnicastAddresses
-                                    .FirstOrDefault(ua => ua.Address.AddressFamily == AddressFamily.InterNetwork)?.Address;
+                                    .FirstOrDefault(ua => ua.Address.AddressFamily is AddressFamily.InterNetwork)?.Address;
 
-            if (ipv4Address == null)
+            if (ipv4Address is null)
                 return; // could not find an IPv4 address for this adapter
 
-            var ifaceIndex = p.Index;
+            var ifaceIndex = ipv4Properties.Index;
 
             Debug.WriteLine($"Scanning on iface {adapter.Name}, idx {ifaceIndex}, IP: {ipv4Address}");
 
 
-            using (var client = new UdpClient())
+            using var client = new UdpClient();
+
+            for (var i = 0; i < retries; i++)
             {
-                for (var i = 0; i < retries; i++)
+                try
                 {
-                    try
-                    {
-                        var socket = client.Client;
+                    var socket = client.Client;
 
-                        if (socket.IsBound) continue;
+                    if (socket.IsBound) continue;
 
-                        socket.SetSocketOption(SocketOptionLevel.IP,
-                                                     SocketOptionName.MulticastInterface,
-                                                     IPAddress.HostToNetworkOrder(ifaceIndex));
+                    socket.SetSocketOption(SocketOptionLevel.IP,
+                                                 SocketOptionName.MulticastInterface,
+                                                 IPAddress.HostToNetworkOrder(ifaceIndex));
 
 
 
-                        client.ExclusiveAddressUse = false;
-                        socket.SetSocketOption(SocketOptionLevel.Socket,
-                                                      SocketOptionName.ReuseAddress,
-                                                      true);
-                        socket.SetSocketOption(SocketOptionLevel.Socket,
-                                                      SocketOptionName.ReceiveTimeout,
-                                                      (int)scanTime.TotalMilliseconds);
-                        client.ExclusiveAddressUse = false;
+                    client.ExclusiveAddressUse = false;
+                    socket.SetSocketOption(SocketOptionLevel.Socket,
+                                                  SocketOptionName.ReuseAddress,
+                                                  true);
+                    socket.SetSocketOption(SocketOptionLevel.Socket,
+                                                  SocketOptionName.ReceiveTimeout,
+                                                  (int)scanTime.TotalMilliseconds);
+                    client.ExclusiveAddressUse = false;
 
 
-                        var localEp = new IPEndPoint(IPAddress.Any, 5353);
+                    var localEp = new IPEndPoint(IPAddress.Any, 5353);
 
-                        Debug.WriteLine($"Attempting to bind to {localEp} on adapter {adapter.Name}");
-                        socket.Bind(localEp);
-                        Debug.WriteLine($"Bound to {localEp}");
+                    Debug.WriteLine($"Attempting to bind to {localEp} on adapter {adapter.Name}");
+                    socket.Bind(localEp);
+                    Debug.WriteLine($"Bound to {localEp}");
 
-                        var multicastAddress = IPAddress.Parse("224.0.0.251");
-                        var multOpt = new MulticastOption(multicastAddress, ifaceIndex);
-                        socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
-
-
-                        Debug.WriteLine("Bound to multicast address");
+                    var multicastAddress = IPAddress.Parse("224.0.0.251");
+                    var multOpt = new MulticastOption(multicastAddress, ifaceIndex);
+                    socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
 
 
-                        // Start a receive loop
-                        var shouldCancel = false;
-                        var recTask = Task.Run(async
-                                               () =>
+                    Debug.WriteLine("Bound to multicast address");
+
+
+
+                    // Start a receive loop
+                    var shouldCancel = false;
+                    var recTask = Task.Run(async
+                                           () =>
+                                           {
+                                               try
                                                {
-                                                   try
+                                                   while (!Volatile.Read(ref shouldCancel))
                                                    {
-                                                       while (!Volatile.Read(ref shouldCancel))
-                                                       {
-                                                           var res = await client.ReceiveAsync()
-                                                                                 .ConfigureAwait(false);
+                                                       var res = await client.ReceiveAsync()
+                                                                             .ConfigureAwait(false);
 
-                                                           onResponse(res.RemoteEndPoint.Address, res.Buffer);
-                                                       }
+                                                       onResponse(res.RemoteEndPoint.Address, res.Buffer);
                                                    }
-                                                   catch when (Volatile.Read(ref shouldCancel))
-                                                   {
-                                                       // If we're canceling, eat any exceptions that come from here   
-                                                   }
-                                               }, cancellationToken);
+                                               }
+                                               catch when (Volatile.Read(ref shouldCancel))
+                                               {
+                                                   // If we're canceling, eat any exceptions that come from here   
+                                               }
+                                           }, cancellationToken);
 
-                        var broadcastEp = new IPEndPoint(IPAddress.Parse("224.0.0.251"), 5353);
+                    var broadcastEp = new IPEndPoint(IPAddress.Parse("224.0.0.251"), 5353);
 
-                        Debug.WriteLine($"About to send on iface {adapter.Name}");
-                        await client.SendAsync(requestBytes, requestBytes.Length, broadcastEp)
-                                    .ConfigureAwait(false);
+                    Debug.WriteLine($"About to send on iface {adapter.Name}");
+                    await client.SendAsync(requestBytes, requestBytes.Length, broadcastEp)
+                                .ConfigureAwait(false);
 
-                        Debug.WriteLine($"Sent mDNS query on iface {adapter.Name}");
-
-
-                        // wait for responses
-                        await Task.Delay(scanTime, cancellationToken)
-                                  .ConfigureAwait(false);
-
-                        Volatile.Write(ref shouldCancel, true);
-
-                        ((IDisposable)client).Dispose();
-
-                        Debug.WriteLine("Done Scanning");
+                    Debug.WriteLine($"Sent mDNS query on iface {adapter.Name}");
 
 
-                        await recTask.ConfigureAwait(false);
+                    // wait for responses
+                    await Task.Delay(scanTime, cancellationToken)
+                              .ConfigureAwait(false);
 
-                        return;
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.WriteLine($"Execption with network request, IP {ipv4Address}\n: {e}");
-                        if (i + 1 >= retries) // last one, pass underlying out
-                        {
-                            // Ensure all inner info is captured                            
-                            ExceptionDispatchInfo.Capture(e).Throw();
-                            throw;
-                        }
-                    }
+                    Volatile.Write(ref shouldCancel, true);
 
-                    await Task.Delay(retryDelayMilliseconds, cancellationToken).ConfigureAwait(false);
+                    Debug.WriteLine("Done Scanning");
+
+                    await recTask.ConfigureAwait(false);
+
+                    return;
                 }
+                catch (Exception e)
+                {
+                    Debug.WriteLine($"Execption with network request, IP {ipv4Address}\n: {e}");
+                    if (i + 1 >= retries) // last one, pass underlying out
+                    {
+                        // Ensure all inner info is captured                            
+                        ExceptionDispatchInfo.Capture(e).Throw();
+                        throw;
+                    }
+                }
+
+                await Task.Delay(retryDelayMilliseconds, cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
 
         public Task ListenForAnnouncementsAsync(Action<AdapterInformation, string, byte[]> callback, CancellationToken cancellationToken)
         {
-            return Task.WhenAll(System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                                     // .Where(a => a.GetIPProperties().MulticastAddresses.Any()) // Xamarin doesn't support this
-                                      .Where(a => a.SupportsMulticast)
-                                      .Where(a => a.OperationalStatus == OperationalStatus.Up)
-                                      .Where(a => a.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-                                      .Where(a => a.GetIPProperties().GetIPv4Properties() != null)
-                                      .Where(a => a.GetIPProperties().UnicastAddresses.Any(ua => ua.Address.AddressFamily == AddressFamily.InterNetwork))
-                                      .Select(inter => ListenForAnnouncementsAsync(inter, callback, cancellationToken)));
+            var networkInterfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                // .Where(a => a.GetIPProperties().MulticastAddresses.Any()) // Xamarin doesn't support this
+                .Where(a => a.SupportsMulticast)
+                .Where(a => a.OperationalStatus is OperationalStatus.Up)
+                .Where(a => a.NetworkInterfaceType is not NetworkInterfaceType.Loopback)
+                .Where(a => a.GetIPProperties().GetIPv4Properties() is not null)
+                .Where(a => a.GetIPProperties().UnicastAddresses.Any(ua => ua.Address.AddressFamily is AddressFamily.InterNetwork));
+
+            return Task.WhenAll(networkInterfaces.Select(i => ListenForAnnouncementsAsync(i, callback, cancellationToken)));
         }
 
-        Task ListenForAnnouncementsAsync(System.Net.NetworkInformation.NetworkInterface adapter, Action<AdapterInformation, string, byte[]> callback, CancellationToken cancellationToken)
+        private Task ListenForAnnouncementsAsync(System.Net.NetworkInformation.NetworkInterface adapter, Action<AdapterInformation, string, byte[]> callback, CancellationToken cancellationToken)
         {
             return Task.Factory.StartNew(async () =>
             {
                 var ipv4Address = adapter.GetIPProperties().UnicastAddresses
-                                         .First(ua => ua.Address.AddressFamily == AddressFamily.InterNetwork)?.Address;
+                                         .First(ua => ua.Address.AddressFamily is AddressFamily.InterNetwork).Address;
 
-                if (ipv4Address == null)
+                if (ipv4Address is null)
                     return;
 
                 var ifaceIndex = adapter.GetIPProperties().GetIPv4Properties()?.Index;
-                if (ifaceIndex == null)
+                if (ifaceIndex is null)
                     return;
 
                 Debug.WriteLine($"Scanning on iface {adapter.Name}, idx {ifaceIndex}, IP: {ipv4Address}");
 
-                using (var client = new UdpClient())
+                using var client = new UdpClient();
+                var socket = client.Client;
+                socket.SetSocketOption(SocketOptionLevel.IP,
+                                       SocketOptionName.MulticastInterface,
+                                       IPAddress.HostToNetworkOrder(ifaceIndex.Value));
+
+                socket.SetSocketOption(SocketOptionLevel.Socket,
+                                       SocketOptionName.ReuseAddress,
+                                       true);
+                client.ExclusiveAddressUse = false;
+
+
+                var localEp = new IPEndPoint(IPAddress.Any, 5353);
+                socket.Bind(localEp);
+
+                var multicastAddress = IPAddress.Parse("224.0.0.251");
+                var multOpt = new MulticastOption(multicastAddress, ifaceIndex.Value);
+                socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
+
+
+                cancellationToken.Register(client.Dispose);
+
+
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    var socket = client.Client;
-                    socket.SetSocketOption(SocketOptionLevel.IP,
-                                           SocketOptionName.MulticastInterface,
-                                           IPAddress.HostToNetworkOrder(ifaceIndex.Value));
-
-                    socket.SetSocketOption(SocketOptionLevel.Socket,
-                                           SocketOptionName.ReuseAddress,
-                                           true);
-                    client.ExclusiveAddressUse = false;
-
-
-                    var localEp = new IPEndPoint(IPAddress.Any, 5353);
-                    socket.Bind(localEp);
-
-                    var multicastAddress = IPAddress.Parse("224.0.0.251");
-                    var multOpt = new MulticastOption(multicastAddress, ifaceIndex.Value);
-                    socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
-
-
-                    cancellationToken.Register((() =>
-                                                {
-                                                    ((IDisposable)client).Dispose();
-                                                }));
-                        
-
-                    while (!cancellationToken.IsCancellationRequested)
+                    try
                     {
+                        var packet = await client.ReceiveAsync()
+                                             .ConfigureAwait(false);
                         try
                         {
-                            var packet = await client.ReceiveAsync()
-                                                 .ConfigureAwait(false);
-                            try
-                            {
-                                callback(new AdapterInformation(ipv4Address.ToString(), adapter.Name), packet.RemoteEndPoint.Address.ToString(), packet.Buffer);
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine($"Callback threw an exception: {ex}");
-                            }
+                            callback(new AdapterInformation(ipv4Address.ToString(), adapter.Name), packet.RemoteEndPoint.Address.ToString(), packet.Buffer);
                         }
-                        catch when (cancellationToken.IsCancellationRequested)
+                        catch (Exception ex)
                         {
-                            // eat any exceptions if we've been cancelled
+                            Debug.WriteLine($"Callback threw an exception: {ex}");
                         }
                     }
-
-
-                    Debug.WriteLine($"Done listening for mDNS packets on {adapter.Name}, idx {ifaceIndex}, IP: {ipv4Address}.");
-
-                    cancellationToken.ThrowIfCancellationRequested();
+                    catch when (cancellationToken.IsCancellationRequested)
+                    {
+                        // eat any exceptions if we've been cancelled
+                    }
                 }
+
+
+                Debug.WriteLine($"Done listening for mDNS packets on {adapter.Name}, idx {ifaceIndex}, IP: {ipv4Address}.");
+
+                cancellationToken.ThrowIfCancellationRequested();
             }, cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
         }
     }

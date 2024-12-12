@@ -1,8 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Zeroconf
 {
@@ -11,7 +8,7 @@ namespace Zeroconf
         int retries;
 
         protected ZeroconfOptions(string protocol) :
-            this(new[] {protocol})
+            this(new[] { protocol })
         {
         }
 
@@ -29,13 +26,8 @@ namespace Zeroconf
 
         public int Retries
         {
-            get { return retries; }
-            set
-            {
-                if (value < 0)
-                    throw new ArgumentOutOfRangeException(nameof(value));
-                retries = value;
-            }
+            get => retries;
+            set => retries = value is >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
         }
 
         public TimeSpan RetryDelay { get; set; }
