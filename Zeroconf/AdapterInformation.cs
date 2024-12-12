@@ -1,11 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace Zeroconf
 {
-    public struct AdapterInformation : IEquatable<AdapterInformation>
+    public readonly struct AdapterInformation : IEquatable<AdapterInformation>
     {
         public bool Equals(AdapterInformation other)
         {
@@ -14,15 +11,14 @@ namespace Zeroconf
 
         public override bool Equals(object obj)
         {
-            if (ReferenceEquals(null, obj)) return false;
-            return obj is AdapterInformation && Equals((AdapterInformation)obj);
+            return obj is AdapterInformation information && Equals(information);
         }
 
         public override int GetHashCode()
         {
             unchecked
             {
-                return ((Address != null ? Address.GetHashCode() : 0)*397) ^ (Name != null ? Name.GetHashCode() : 0);
+                return ((Address?.GetHashCode() ?? 0) * 397) ^ (Name?.GetHashCode() ?? 0);
             }
         }
 
