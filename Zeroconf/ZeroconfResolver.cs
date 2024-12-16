@@ -8,7 +8,6 @@ using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Heijden.DNS;
-using Type = Heijden.DNS.Type;
 
 namespace Zeroconf
 {
@@ -17,21 +16,23 @@ namespace Zeroconf
     /// </summary>
     public static partial class ZeroconfResolver
     {
-        static readonly AsyncLock ResolverLock = new AsyncLock();
+        private static readonly AsyncLock ResolverLock = new();
 
-        static readonly INetworkInterface NetworkInterface = new NetworkInterface();
+        private static readonly INetworkInterface NetworkInterface = new NetworkInterface();
 
-        static IEnumerable<string> BrowseResponseParser(Response response)
+        private static IEnumerable<string> BrowseResponseParser(Response response)
         {
             return response.RecordsPTR.Select(ptr => ptr.PTRDNAME);
         }
 
-        static async Task<IDictionary<string, Response>> ResolveInternal(ZeroconfOptions options,
-                                                                         Action<string, Response> callback,
-                                                                         CancellationToken cancellationToken,
-                                                                         System.Net.NetworkInformation.NetworkInterface[] netInterfacesToSendRequestOn = null)
+        private static async Task<IDictionary<string, Response>> ResolveInternal(
+            ZeroconfOptions options,
+            Action<string, Response> callback,
+            CancellationToken cancellationToken,
+            System.Net.NetworkInformation.NetworkInterface[] netInterfacesToSendRequestOn = null)
         {
             var requestBytes = GetRequestBytes(options);
+
             using (options.AllowOverlappedQueries ? Disposable.Empty : await ResolverLock.LockAsync())
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -63,7 +64,7 @@ namespace Zeroconf
                                                            options.ScanTime,
                                                            options.Retries,
                                                            (int)options.RetryDelay.TotalMilliseconds,
-                                                           Converter,                                                           
+                                                           Converter,
                                                            cancellationToken,
                                                            netInterfacesToSendRequestOn)
                                       .ConfigureAwait(false);
@@ -87,9 +88,9 @@ namespace Zeroconf
             return req.Data;
         }
 
-        static ZeroconfHost ResponseToZeroconf(Response response, string remoteAddress, ResolveOptions options)
+        private static ZeroconfHost ResponseToZeroconf(Response response, string remoteAddress, ResolveOptions options)
         {
-            var ipv4Adresses = response.Answers
+            var ipv4Adresses = response.RecordsRR
                                       .Select(r => r.RECORD)
                                       .OfType<RecordA>()
                                       .Concat(response.Additionals
@@ -99,7 +100,7 @@ namespace Zeroconf
                                       .Distinct()
                                       .ToList();
 
-            var ipv6Adresses = response.Answers
+            var ipv6Adresses = response.RecordsRR
                                       .Select(r => r.RECORD)
                                       .OfType<RecordAAAA>()
                                       .Concat(response.Additionals
@@ -116,9 +117,9 @@ namespace Zeroconf
             };
 
             z.Id = z.IPAddresses.FirstOrDefault() ?? remoteAddress;
-            
+
             var dispNameSet = false;
-           
+
             foreach (var ptrRec in response.RecordsPTR)
             {
                 // set the display name if needed
@@ -127,7 +128,7 @@ namespace Zeroconf
                         || (options != null
                             && options.Protocols.Contains(ptrRec.RR.NAME))))
                 {
-                    z.DisplayName = ptrRec.PTRDNAME.Replace($".{ptrRec.RR.NAME}","");
+                    z.DisplayName = ptrRec.PTRDNAME.Replace($".{ptrRec.RR.NAME}", "");
                     dispNameSet = true;
                 }
 
@@ -156,7 +157,7 @@ namespace Zeroconf
                     var set = new Dictionary<string, string>();
                     foreach (var txt in txtRec.TXT)
                     {
-                        var split = txt.Split(new[] {'='}, 2);
+                        var split = txt.Split(new[] { '=' }, 2);
                         if (split.Length == 1)
                         {
                             if (!string.IsNullOrWhiteSpace(split[0]))
@@ -175,7 +176,6 @@ namespace Zeroconf
 
             return z;
         }
-
 
     }
 }
