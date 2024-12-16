@@ -23,6 +23,11 @@ namespace Zeroconf
         string Id { get; }
 
         /// <summary>
+        ///     The host name of this host
+        /// </summary>
+        string Hostname { get; }
+
+        /// <summary>
         ///     IP Address (alias for IPAddresses.First())
         /// </summary>
         string IPAddress { get; }
@@ -105,6 +110,12 @@ namespace Zeroconf
         public string Id { get; set; }
 
         /// <summary>
+        ///     The host name of this host
+        /// </summary>
+        public string Hostname { get; set; }
+
+
+        /// <summary>
         ///     IP Address (alias for IPAddresses.First())
         /// </summary>
         public string IPAddress
@@ -167,7 +178,7 @@ namespace Zeroconf
             sb.AppendLine("| ----------------------------------------------");
             sb.AppendLine("| HOST");
             sb.AppendLine("| ----------------------------------------------");
-            sb.AppendLine($"| Id: {Id}\n| DisplayName: {DisplayName}\n| IPs: {string.Join(", ", IPAddresses)}\n| Services: {services.Count}");
+            sb.AppendLine($"| Id: {Id}\n| DisplayName: {DisplayName}\n| IPs: {string.Join(", ", IPAddresses)}\n| Services: {services.Count}\n| Hostname: {Hostname}");
 
             if (services.Any())
             {

@@ -111,7 +111,8 @@ namespace Zeroconf
                                       
             var z = new ZeroconfHost
             {
-                IPAddresses = ipv4Adresses.Concat(ipv6Adresses).ToList()
+                IPAddresses = ipv4Adresses.Concat(ipv6Adresses).ToList(),
+                Hostname = response.RecordsRR.FirstOrDefault(rr => rr.Type is Type.A)?.NAME,
             };
 
             z.Id = z.IPAddresses.FirstOrDefault() ?? remoteAddress;
