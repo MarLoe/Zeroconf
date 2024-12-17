@@ -116,6 +116,23 @@ namespace Zeroconf
 
             z.Id = z.IPAddresses.FirstOrDefault() ?? remoteAddress;
             
+            // Find hostname from A Record (if available)
+            z.Hostname = response.RecordsRR.FirstOrDefault(rr => rr.Type is Type.A)?.NAME;
+            if (string.IsNullOrEmpty(z.Hostname))
+            {
+                // Could not find hostname - look at services
+                var ptrNames = response.RecordsPTR.Select(r => r.PTRDNAME).ToList();
+                var records = response.RecordsRR.AsEnumerable();
+                if (ptrNames.Any())
+                {
+                    records = records.Where(r => ptrNames.Contains(r.NAME));
+                }
+                z.Hostname = records
+                    .Select(r => r.RECORD)
+                    .OfType<RecordSRV>()
+                    .FirstOrDefault()?.TARGET;
+            }
+
             var dispNameSet = false;
            
             foreach (var ptrRec in response.RecordsPTR)
