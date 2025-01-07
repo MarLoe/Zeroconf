@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reactive;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Zeroconf
 {
@@ -82,7 +80,37 @@ namespace Zeroconf
     /// </summary>
     internal class ZeroconfHost : IZeroconfHost, IEquatable<ZeroconfHost>, IEquatable<IZeroconfHost>
     {
-        private readonly Dictionary<string, IService> services = new Dictionary<string, IService>();
+        private readonly Dictionary<string, IService> services = new();
+
+        /// <summary>
+        ///     Id, possibly different than the display name
+        /// </summary>
+        public string Id { get; set; }
+
+        /// <summary>
+        ///     The host name of this host
+        /// </summary>
+        public string Hostname { get; set; }
+
+        /// <summary>
+        ///     IP Address (alias for IPAddresses.First())
+        /// </summary>
+        public string IPAddress => IPAddresses?.FirstOrDefault();
+
+        /// <summary>
+        ///     IP Addresses
+        /// </summary>
+        public IReadOnlyList<string> IPAddresses { get; set; }
+
+        /// <summary>
+        ///     Collection of services provided by the host
+        /// </summary>
+        public IReadOnlyDictionary<string, IService> Services => services;
+
+        /// <summary>
+        ///     Display Name
+        /// </summary>
+        public string DisplayName { get; set; }
 
         public bool Equals(IZeroconfHost other)
         {
@@ -91,7 +119,7 @@ namespace Zeroconf
 
         public bool Equals(ZeroconfHost other)
         {
-            if (ReferenceEquals(null, other))
+            if (other is null)
             {
                 return false;
             }
@@ -104,44 +132,9 @@ namespace Zeroconf
             return string.Equals(Id, other.Id) && string.Equals(IPAddress, other.IPAddress);
         }
 
-        /// <summary>
-        ///     Id, possibly different than the display name
-        /// </summary>
-        public string Id { get; set; }
-
-        /// <summary>
-        ///     The host name of this host
-        /// </summary>
-        public string Hostname { get; set; }
-
-
-        /// <summary>
-        ///     IP Address (alias for IPAddresses.First())
-        /// </summary>
-        public string IPAddress
-        {
-            get { return IPAddresses?.FirstOrDefault(); }
-        }
-
-        /// <summary>
-        ///     IP Addresses
-        /// </summary>
-        public IReadOnlyList<string> IPAddresses { get; set; }
-
-        /// <summary>
-        ///     Collection of services provided by the host
-        /// </summary>
-        public IReadOnlyDictionary<string, IService> Services => services;
-
-
-        /// <summary>
-        ///     Display Name
-        /// </summary>
-        public string DisplayName { get; set; }
-
         public override bool Equals(object obj)
         {
-            if (ReferenceEquals(null, obj))
+            if (obj is null)
             {
                 return false;
             }
@@ -175,10 +168,13 @@ namespace Zeroconf
         public override string ToString()
         {
             var sb = new StringBuilder();
-            sb.AppendLine("| ----------------------------------------------");
-            sb.AppendLine("| HOST");
-            sb.AppendLine("| ----------------------------------------------");
-            sb.AppendLine($"| Id: {Id}\n| DisplayName: {DisplayName}\n| IPs: {string.Join(", ", IPAddresses)}\n| Services: {services.Count}\n| Hostname: {Hostname}");
+            sb.AppendLine($"| ----------------------------------------------");
+            sb.AppendLine($"| HOST");
+            sb.AppendLine($"| ----------------------------------------------");
+            sb.AppendLine($"| Id: {Id}");
+            sb.AppendLine($"| DisplayName: {DisplayName}");
+            sb.AppendLine($"| IPs: {string.Join(", ", IPAddresses)}");
+            sb.AppendLine($"| Services: {services.Count}");
 
             if (services.Any())
             {
@@ -191,20 +187,21 @@ namespace Zeroconf
                     sb.AppendLine(service.Value.ToString());
                     sb.AppendLine("\t| -------------------");
                 }
-
             }
 
-            sb.AppendLine("| ---------------------------------------------");
+            sb.AppendLine($"| ----------------------------------------------");
 
             return sb.ToString();
         }
 
         internal void AddService(IService service)
         {
-            if (service is null) {
+            if (service is null)
+            {
                 throw new ArgumentNullException(nameof(service));
             }
-            if (service.ServiceName is null) {
+            if (service.ServiceName is null)
+            {
                 throw new ArgumentNullException(nameof(service.ServiceName));
             }
             services[service.ServiceName] = service;
@@ -213,7 +210,7 @@ namespace Zeroconf
 
     internal class Service : IService
     {
-        private readonly List<IReadOnlyDictionary<string, string>> properties = new List<IReadOnlyDictionary<string, string>>();
+        private readonly List<IReadOnlyDictionary<string, string>> properties = new();
 
         public string Name { get; set; }
         public string ServiceName { get; set; }
@@ -226,23 +223,26 @@ namespace Zeroconf
         {
             var sb = new StringBuilder();
 
-            sb.Append($"\t| Service: {Name}\n\t| ServiceName: {ServiceName}\n\t| Port: {Port}\n\t| TTL: {Ttl}\n\t| PropertySets: {properties.Count}");
+            sb.AppendLine($"\t| Service: {Name}");
+            sb.AppendLine($"\t| ServiceName: {ServiceName}");
+            sb.AppendLine($"\t| Port: {Port}");
+            sb.AppendLine($"\t| TTL: {Ttl}");
+            sb.AppendLine($"\t| PropertySets: {properties.Count}");
 
             if (properties.Any())
             {
-                sb.AppendLine();
-                for (var i = 0; i < properties.Count; i++)
+                var i = 0;
+                foreach (var property in properties)
                 {
-                    sb.AppendLine("\t\t| -------------------");
-                    sb.Append($"\t\t| Property Set #{i}");
-                    sb.AppendLine();
-                    sb.AppendLine("\t\t| -------------------");
+                    sb.AppendLine($"\t\t| -------------------");
+                    sb.AppendLine($"\t\t| Property Set #{i++}");
+                    sb.AppendLine($"\t\t| -------------------");
 
-                    foreach (var kvp in properties[i])
+                    foreach (var kvp in property)
                     {
                         sb.AppendLine($"\t\t| {kvp.Key} = {kvp.Value}");
                     }
-                    sb.Append("\t\t| -------------------");
+                    sb.AppendLine($"\t\t| -------------------");
                 }
             }
 
@@ -251,12 +251,7 @@ namespace Zeroconf
 
         internal void AddPropertySet(IReadOnlyDictionary<string, string> set)
         {
-            if (set == null)
-            {
-                throw new ArgumentNullException(nameof(set));
-            }
-
-            properties.Add(set);
+            properties.Add(set ?? throw new ArgumentNullException(nameof(set)));
         }
 
     }

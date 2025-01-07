@@ -1,6 +1,5 @@
-using System;
-using System.Text;
 using System.Collections.Generic;
+using System.Text;
 
 #region Rfc info
 /*
@@ -23,13 +22,13 @@ depends on the domain where it is found.
 namespace Heijden.DNS
 {
     class RecordTXT : Record
-	{
-		public List<string> TXT;
+    {
+        public List<string> TXT;
 
-		public RecordTXT(RecordReader rr, int Length)
-		{
-			var pos = rr.Position;
-			TXT = new List<string>();
+        public RecordTXT(RecordReader rr, int Length)
+        {
+            var pos = rr.Position;
+            TXT = new List<string>();
             while (
                 ((rr.Position - pos) < Length) &&
                 (rr.Position < rr.Length)
@@ -39,13 +38,13 @@ namespace Heijden.DNS
             }
         }
 
-		public override string ToString()
-		{
-			var sb = new StringBuilder();
-			foreach (var txt in TXT)
-				sb.AppendFormat("\"{0}\" ", txt);
-			return sb.ToString().TrimEnd();
-		}
+        public override string ToString()
+        {
+            var sb = new StringBuilder();
+            foreach (var txt in TXT)
+                sb.AppendFormat("\"{0}\" ", txt);
+            return sb.ToString().TrimEnd();
+        }
 
-	}
+    }
 }
