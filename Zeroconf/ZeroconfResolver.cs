@@ -42,21 +42,27 @@ namespace Zeroconf
                 void Converter(IPAddress address, byte[] buffer)
                 {
                     var resp = new Response(buffer);
-                    var firstPtr = resp.RecordsPTR.FirstOrDefault();
-                    var name = firstPtr?.PTRDNAME.Split('.')[0] ?? string.Empty;
-                    var addrString = address.ToString();
-
-                    Debug.WriteLine($"IP: {addrString}, {(string.IsNullOrEmpty(name) ? string.Empty : $"Name: {name}, ")}Bytes: {buffer.Length}, IsResponse: {resp.header.QR}");
-
-                    if (resp.header.QR)
+                    if (resp.IsQueryResponse)
                     {
-                        var key = $"{addrString}{(string.IsNullOrEmpty(name) ? "" : $": {name}")}";
-                        lock (dict)
+                        var firstPtr = MatchRecord(resp, options);
+                        if (firstPtr is not null)
                         {
-                            dict[key] = resp;
-                        }
+                            var name = GetDisplayName(firstPtr);
+                            if (string.IsNullOrEmpty(name))
+                            {
+                                return;
+                            }
 
-                        callback?.Invoke(key, resp);
+                            Debug.WriteLine($"IP: {address}, {(string.IsNullOrEmpty(name) ? string.Empty : $"Name: {name}, ")}Bytes: {buffer.Length}, IsResponse: {resp.header.QR}");
+
+                            var key = $"{address}:{name}";
+                            lock (dict)
+                            {
+                                dict[key] = resp;
+                            }
+
+                            callback?.Invoke(key, resp);
+                        }
                     }
                 }
 
@@ -93,6 +99,14 @@ namespace Zeroconf
                                       .Select(aRecord => aRecord.Address)
                                       .Distinct()
                                       .ToList();
+            if (!ipv4Adresses.Any())
+            {
+                var address = remoteAddress.Split(':').FirstOrDefault();
+                if (!string.IsNullOrEmpty(address))
+                {
+                    ipv4Adresses.Add(address);
+                }
+            }
 
             var ipv6Adresses = response.RecordsRR
                                       .Select(r => r.RECORD)
@@ -104,56 +118,43 @@ namespace Zeroconf
                                       .Distinct()
                                       .ToList();
 
-            var z = new ZeroconfHost
+            var ptrDomains = response.RecordsPTR.Select(r => r.PTRDNAME).ToList();
+            if (!ptrDomains.Any() && options is not null)
             {
-                IPAddresses = ipv4Adresses.Concat(ipv6Adresses).ToList()
-            };
-
-            z.Id = z.IPAddresses.FirstOrDefault() ?? remoteAddress;
-
-            // Find hostname from A Record (if available)
-            z.Hostname = response.RecordsRR.FirstOrDefault(rr => rr.Type is Type.A)?.NAME;
-            if (string.IsNullOrEmpty(z.Hostname))
-            {
-                // Could not find hostname - look at services
-                var ptrNames = response.RecordsPTR.Select(r => r.PTRDNAME).ToList();
-                var records = response.RecordsRR.AsEnumerable();
-                if (ptrNames.Any())
-                {
-                    records = records.Where(r => ptrNames.Contains(r.NAME));
-                }
-                z.Hostname = records
-                    .Select(r => r.RECORD)
-                    .OfType<RecordSRV>()
-                    .FirstOrDefault()?.TARGET;
+                
+                // The response did not contain any PTR records.
+                // Let's use the domains we are looking for instead.
+                ptrDomains = options.Protocols.ToList();
             }
 
-            var dispNameSet = false;
-
-            foreach (var ptrRec in response.RecordsPTR)
+            var z = new ZeroconfHost
             {
-                // set the display name if needed
-                if (!dispNameSet && options?.Protocols.Contains(ptrRec.RR.NAME) is not false)
-                {
-                    z.DisplayName = ptrRec.PTRDNAME.Replace($".{ptrRec.RR.NAME}", "");
-                    dispNameSet = true;
-                }
+                Id = ipv4Adresses.FirstOrDefault() ?? remoteAddress,
+                DisplayName = GetDisplayName(response, options),
+                Hostname = GetHostname(response, ptrDomains),
+                IPAddresses = ipv4Adresses.Concat(ipv6Adresses).ToList(),
+                Domains = ptrDomains,
+            };
 
+
+            foreach (var ptr in ptrDomains)
+            {
                 // Get the matching service records
                 var responseRecords = response.RecordsRR
-                                             .Where(r => r.NAME == ptrRec.PTRDNAME)
+                                             .Where(r => ptr.Equals(r.NAME, StringComparison.InvariantCultureIgnoreCase))
                                              .Select(r => r.RECORD)
                                              .ToList();
+
+                var ptrRec = response.RecordsPTR.FirstOrDefault(p => p.PTRDNAME.Equals(ptr, StringComparison.InvariantCultureIgnoreCase));
 
                 foreach (var srvRec in responseRecords.OfType<RecordSRV>())
                 {
                     var svc = new Service
                     {
-                        Name = ptrRec.RR.NAME,
+                        Name = ptrRec?.RR.NAME ?? ptr,
                         ServiceName = srvRec.RR.NAME,
                         Port = srvRec.PORT,
                         Ttl = (int)srvRec.RR.TTL,
-
                     };
 
                     // There may be 0 or more text records - property sets
@@ -183,5 +184,57 @@ namespace Zeroconf
             return z;
         }
 
+        private static RR MatchRecord(Response response, ZeroconfOptions options)
+        {
+            return response.RecordsRR.FirstOrDefault(rr => options.Protocols.Any(p => rr.NAME.EndsWith(p, StringComparison.InvariantCultureIgnoreCase)));
+        }
+
+        private static string GetHostname(Response response, List<string> ptrDomains)
+        {
+            // Find hostname from A Record (if available)
+            var hostname = response.RecordsRR.FirstOrDefault(rr => rr.Type is Type.A)?.NAME;
+            if (string.IsNullOrEmpty(hostname))
+            {
+                // Could not find hostname - look at services
+                var records = response.RecordsRR.AsEnumerable();
+                if (ptrDomains.Any())
+                {
+                    records = records.Where(r => ptrDomains.Contains(r.NAME, StringComparer.InvariantCultureIgnoreCase));
+                }
+                hostname = records
+                    .Select(r => r.RECORD)
+                    .OfType<RecordSRV>()
+                    .FirstOrDefault()?.TARGET;
+            }
+
+            return hostname;
+        }
+
+        private static string GetDisplayName(Response response, ResolveOptions options)
+        {
+            if (options is not null)
+            {
+                var recPtr = response.RecordsPTR.FirstOrDefault(r => options.Protocols.Contains(r.RR.NAME, StringComparer.InvariantCultureIgnoreCase));
+                if (recPtr is not null)
+                {
+                    return GetDisplayName(recPtr);
+                }
+            }
+            return GetDisplayName(response.RecordsPTR.FirstOrDefault());
+        }
+
+        private static string GetDisplayName(RR rr)
+        {
+            if (rr.RECORD is RecordPTR recPtr)
+            {
+                return GetDisplayName(recPtr);
+            }
+            return rr?.NAME;
+        }
+
+        private static string GetDisplayName(RecordPTR ptrRec)
+        {
+            return ptrRec?.PTRDNAME.Replace(ptrRec.RR.NAME, "").TrimEnd('.');
+        }
     }
 }

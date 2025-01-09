@@ -35,6 +35,10 @@ namespace Zeroconf
         /// </summary>
         IReadOnlyList<string> IPAddresses { get; }
 
+        /// <summary>
+        ///     The domain names provided by the PTR record
+        /// </summary>
+        IReadOnlyList<string> Domains { get; }
 
         /// <summary>
         ///     Services offered by this host (based on services queried for)
@@ -101,6 +105,11 @@ namespace Zeroconf
         ///     IP Addresses
         /// </summary>
         public IReadOnlyList<string> IPAddresses { get; set; }
+
+        /// <summary>
+        ///     The domain names provided by the PTR record
+        /// </summary>
+        public IReadOnlyList<string> Domains { get; set; }
 
         /// <summary>
         ///     Collection of services provided by the host
