@@ -118,14 +118,19 @@ namespace Zeroconf
         {
             Action<string, Response> wrappedAction = null;
 
+            static bool FilterResponse(Response response, ResolveOptions options)
+            {
+                return MatchRecord(response, options) is not null;
+            }
+
+
             if (callback != null)
             {
                 wrappedAction = (address, resp) =>
                 {
-                    var zc = ResponseToZeroconf(resp, address, options);
-                    if (zc.Services.Any(s => options.Protocols.Contains(s.Value.Name)))
+                    if (FilterResponse(resp, options))
                     {
-                        callback(zc);
+                        callback(ResponseToZeroconf(resp, address, options));
                     }
                 };
             }
@@ -136,9 +141,10 @@ namespace Zeroconf
                                              netInterfacesToSendRequestOn)
                                  .ConfigureAwait(false);
 
-            return dict.Select(pair => ResponseToZeroconf(pair.Value, pair.Key, options))
-                       .Where(zh => zh.Services.Any(s => options.Protocols.Contains(s.Value.Name))) // Ensure we only return records that have matching services
-                       .ToList();
+            return dict
+                .Where(pair => FilterResponse(pair.Value, options)) // Ensure we only return records that are matching the request
+                .Select(pair => ResponseToZeroconf(pair.Value, pair.Key, options))
+                .ToList();
         }
 
 

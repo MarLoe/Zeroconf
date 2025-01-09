@@ -138,6 +138,9 @@ namespace Heijden.DNS
         ///// </summary>
         //public RecordSOA[] RecordsSOA => GetAnswersOfType<RecordSOA>().ToArray();
 
+        /// <summary>
+        /// List of all RR records
+        /// </summary>
         public RR[] RecordsRR =>
             Answers.OfType<RR>().Concat(Authorities).Concat(Additionals).ToArray();
 
@@ -145,7 +148,7 @@ namespace Heijden.DNS
 
         private IEnumerable<TRecordType> GetAnswersOfType<TRecordType>() where TRecordType : Record
         {
-            return Answers.Select(a => a.RECORD).OfType<TRecordType>();
+            return RecordsRR.Select(a => a.RECORD).OfType<TRecordType>();
         }
     }
 }
