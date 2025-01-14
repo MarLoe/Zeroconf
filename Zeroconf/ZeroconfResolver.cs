@@ -121,7 +121,6 @@ namespace Zeroconf
             var ptrDomains = response.RecordsPTR.Select(r => r.PTRDNAME).ToList();
             if (!ptrDomains.Any() && options is not null)
             {
-                
                 // The response did not contain any PTR records.
                 // Let's use the domains we are looking for instead.
                 ptrDomains = options.Protocols.ToList();
@@ -186,7 +185,8 @@ namespace Zeroconf
 
         private static RR MatchRecord(Response response, ZeroconfOptions options)
         {
-            return response.RecordsRR.FirstOrDefault(rr => options.Protocols.Any(p => rr.NAME.EndsWith(p, StringComparison.InvariantCultureIgnoreCase)));
+            return response.RecordsRR
+                .FirstOrDefault(rr => options.Protocols.Contains(rr.NAME, StringComparer.InvariantCultureIgnoreCase));
         }
 
         private static string GetHostname(Response response, List<string> ptrDomains)
@@ -214,7 +214,7 @@ namespace Zeroconf
         {
             if (options is not null)
             {
-                var recPtr = response.RecordsPTR.FirstOrDefault(r => options.Protocols.Contains(r.RR.NAME, StringComparer.InvariantCultureIgnoreCase));
+                var recPtr = MatchRecord(response, options);
                 if (recPtr is not null)
                 {
                     return GetDisplayName(recPtr);
